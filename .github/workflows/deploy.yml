@@ -1,0 +1,49 @@
+name: Deploy Backend to AWS Lambda
+
+# Esto le dice a GitHub que corra el robot solo cuando hacés 'git push' a la rama 'main'
+on:
+  push:
+    branches:
+      - main
+    # Opcional: solo corre si modificás el código, no si solo cambiás el README
+    paths:
+      - 'src/**'
+      - 'requirements.txt'
+      - '.github/workflows/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest # GitHub te presta una máquina Linux gratis
+
+    steps:
+    - name: 📥 Descargar tu código
+      uses: actions/checkout@v3
+
+    - name: 🔑 Configurar credenciales de AWS
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: 📦 Construir el paquete (con Docker para Linux)
+      run: |
+        echo "Creando carpeta temporal..."
+        mkdir lambda_build
+        cp -r src lambda_build/src/
+        cp -r data lambda_build/data/
+        
+        echo "Instalando dependencias compiladas para Linux usando Docker..."
+        docker run --rm --entrypoint pip -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.11 install -r /var/task/requirements.txt -t /var/task/lambda_build --quiet
+        
+        echo "Comprimiendo en function.zip..."
+        cd lambda_build
+        zip -r ../function.zip .
+
+    - name: 🚀 Subir a AWS Lambda
+      run: |
+        echo "Actualizando función en AWS..."
+        aws lambda update-function-code \
+          --function-name inventory-api \
+          --zip-file fileb://function.zip \
+          --region us-east-1
